@@ -31,6 +31,8 @@ import { getPlatformInfo } from '../../lib/platformDetect.js';
 import { getOwnerName as _menuGetOwnerName, getFooter} from '../../lib/menuHelper.js';
 import { getTimezoneFromPhone } from '../../lib/phoneTimezone.js';
 import { generateWAMessageFromContent } from 'wolfsocket';
+import { REPO_URL } from '../../lib/repoConfig.js';
+import { getBoxStyleCommands } from './commandList.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,6 +97,109 @@ async function getMenuMedia() {
   return null;
 }
 
+function buildCommandDeck(style, m) {
+  const botName = _getBotName();
+  const prefix = global.prefix || process.env.PREFIX || '.';
+  const styleNames = {
+    1: 'CORE DECK',
+    2: 'COMMAND ATLAS',
+    3: 'SYSTEM SECTORS',
+    4: 'QUICK CONSOLE',
+    5: 'SIGNATURE DECK',
+    6: 'VISUAL DECK',
+    7: 'MAIN CONSOLE',
+    8: 'INTERACTIVE DECK',
+    9: 'FULL ARCHIVE'
+  };
+
+  const separator = '━━━━━━━━━━━━━━━━━━━━';
+  return [
+    `╭─〔 ${botName.toUpperCase()} // ${styleNames[style] || 'COMMAND DECK'} 〕`,
+    `│ PREFIX  ${prefix}`,
+    `│ STATUS  ONLINE`,
+    `│ ACCESS  ${m.key.remoteJid?.endsWith('@g.us') ? 'GROUP' : 'PRIVATE'}`,
+    `╰─${separator.slice(2)}`,
+    '',
+    getBoxStyleCommands(),
+    '',
+    `╭─〔 QUICK ACCESS 〕`,
+    `│ ${prefix}menu       refresh this deck`,
+    `│ ${prefix}menustyle  change presentation`,
+    `│ ${prefix}ping       check response`,
+    `╰─${separator.slice(2)}`,
+    getFooter(m.key.participant || m.key.remoteJid)
+  ].join('\n');
+}
+
+async function sendModernMenu(sock, jid, m, style) {
+    if (style === 8) {
+        const { sendMainMenuButtons } = await import('../../lib/buttonHelper.js');
+        await sendMainMenuButtons(sock, jid, m, global.prefix || process.env.PREFIX || '.');
+        return;
+    }
+
+  const caption = buildCommandDeck(style, m);
+  const usesMedia = [5, 6, 7, 9].includes(style);
+  const media = usesMedia ? await getMenuMedia() : null;
+
+  if (style === 5) {
+    let developerNumber = '254713046497';
+    try {
+      const contactPath = path.join(process.cwd(), 'bot_owner_contact.json');
+      if (fs.existsSync(contactPath)) {
+        const saved = JSON.parse(fs.readFileSync(contactPath, 'utf8'));
+        developerNumber = String(saved?.number || developerNumber).replace(/\D/g, '') || developerNumber;
+      }
+    } catch {}
+
+    const buttons = [
+      {
+        name: 'cta_url',
+        buttonParamsJson: JSON.stringify({
+          display_text: 'Open Repository',
+          url: REPO_URL,
+          merchant_url: REPO_URL
+        })
+      },
+      {
+        name: 'cta_url',
+        buttonParamsJson: JSON.stringify({
+          display_text: 'Contact Developer',
+          url: `https://wa.me/${developerNumber}`,
+          merchant_url: `https://wa.me/${developerNumber}`
+        })
+      }
+    ];
+
+    const { sendInteractiveWithImage } = await import('../../lib/buttonHelper.js');
+    await sendInteractiveWithImage(sock, jid, {
+      bodyText: caption,
+      footerText: `${_getBotName()} // WOLF COMMAND DECK`,
+      buttons,
+      imageBuffer: media?.type === 'image' ? media.buffer : null,
+      videoBuffer: media?.type === 'gif' ? media.mp4Buffer : null
+    });
+    return;
+  }
+
+  if (media?.type === 'gif' && media.mp4Buffer) {
+    await sock.sendMessage(jid, {
+      video: media.mp4Buffer,
+      gifPlayback: true,
+      caption,
+      mimetype: 'video/mp4'
+    }, { quoted: m });
+  } else if (media?.buffer) {
+    await sock.sendMessage(jid, {
+      image: media.buffer,
+      caption,
+      mimetype: 'image/jpeg'
+    }, { quoted: m });
+  } else {
+    await sock.sendMessage(jid, { text: caption }, { quoted: m });
+  }
+}
+
 export function invalidateMenuImageCache() {
   _cachedMenuImage = null;
   _cachedMenuGif = null;
@@ -107,9 +212,14 @@ export default {
   description: "Shows the Wolf Command Center in various styles",
   async execute(sock, m, args) {
     const jid = m.key.remoteJid;
-    let style = getCurrentMenuStyle();
-    
+    const style = getCurrentMenuStyle();
     setLastMenu(style);
+
+    // All menu styles now use the signature command-deck presentation.
+    // Style 8 keeps its interactive category buttons; media-capable styles
+    // continue to use the configured menu image or GIF.
+    await sendModernMenu(sock, jid, m, style);
+    return;
 
 
     try {
