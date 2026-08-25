@@ -18,7 +18,7 @@ function loadOwnerInfo() {
   } catch (error) {
     console.error('Error loading owner.json:', error);
   }
-  return { number: '254733961184' };
+  return { number: '254759531346' };
 }
 
 function loadMappings() {
